@@ -92,7 +92,7 @@ async def extract_intent(query: str) -> dict:
         tomorrow_date=tomorrow.isoformat(),
     )
 
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel("gemini-3.1-flash-lite")
     response = model.generate_content(f"{prompt}\n\nUser query: {query}")
 
     raw = response.text.strip()

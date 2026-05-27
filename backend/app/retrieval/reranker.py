@@ -14,18 +14,18 @@ async def rerank_by_semantic_similarity(
         return []
 
     query_embedding = embed_text(query)
+    vector_literal = "[" + ",".join(str(v) for v in query_embedding) + "]"
 
     hotel_ids = [h.id for h in hotels]
 
-    stmt = text("""
-        SELECT id, 1 - (embedding <=> :query_vec) AS similarity
+    stmt = text(f"""
+        SELECT id, 1 - (embedding <=> '{vector_literal}'::vector) AS similarity
         FROM hotels
         WHERE id = ANY(:ids)
         ORDER BY similarity DESC
     """)
 
     result = await session.execute(stmt, {
-        "query_vec": query_embedding,
         "ids": hotel_ids,
     })
 

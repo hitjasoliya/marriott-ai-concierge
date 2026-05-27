@@ -29,8 +29,7 @@ async def retrieve_by_filters(
 
     if amenities:
         for amenity in amenities:
-            stmt = stmt.where(Hotel.amenities[amenity].isnot(None))
-            stmt = stmt.where(Hotel.amenities[amenity] == True)
+            stmt = stmt.where(Hotel.amenities.contains({amenity: True}))
 
     stmt = stmt.limit(limit)
 

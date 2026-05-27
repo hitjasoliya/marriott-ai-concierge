@@ -151,7 +151,7 @@ async def search(request: SearchRequest):
                 f"Mention specific hotel names, atmosphere, standout amenities, and why each matches their query."
             )
 
-            model = genai.GenerativeModel("gemini-2.0-flash")
+            model = genai.GenerativeModel("gemini-3.1-flash-lite")
             response = model.generate_content(
                 f"{system_prompt}\n\n{user_prompt}",
                 stream=True,
