@@ -143,6 +143,15 @@ async def extract_intent(query: str, accumulated_intent: dict | None = None) -> 
             except (ValueError, TypeError):
                 pass
 
+    # B2: If both dates resolved to the same day via fallback, push check_out forward
+    try:
+        ci = result.get("check_in")
+        co = result.get("check_out")
+        if ci and co and date.fromisoformat(ci) >= date.fromisoformat(co):
+            result["check_out"] = (date.fromisoformat(ci) + timedelta(days=1)).isoformat()
+    except (ValueError, TypeError):
+        pass
+
     result.setdefault("guests", 2)
     result.setdefault("brand", "Marriott")
     result.setdefault("semantic_intent", [])

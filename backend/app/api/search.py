@@ -88,8 +88,11 @@ async def _run_search_pipeline(intent: dict, query: str) -> dict:
             lat, lon = ref_point
             geo_results = await retrieve_by_radius(session, lat, lon, radius_km=100.0, limit=50)
             geo_hotel_ids = {h.id for h, _ in geo_results}
-            hotels = [h for h in hotels if h.id in geo_hotel_ids]
-            distance_map = {h.id: d for h, d in geo_results}
+            geo_filtered = [h for h in hotels if h.id in geo_hotel_ids]
+            if geo_filtered:
+                hotels = geo_filtered
+                distance_map = {h.id: d for h, d in geo_results}
+            # Fallback: if no hotels within radius, keep the SQL-filtered hotels without geo constraint
 
         if not hotels:
             reply = _generate_gemini_response(
@@ -152,8 +155,10 @@ async def _run_search_pipeline(intent: dict, query: str) -> dict:
             dates_note = " (Note: dates were not provided, so availability is not confirmed. Suggest they check for their specific dates.)"
 
         hotel_context = "\n".join([
-            f"- {r['name']} in {r['city']}: {r['semantic_text'][:200]}... Rating: {r['rating']}, "
-            f"Price: INR {r['price_per_night']}/night, "
+            f"- {r['name']} in {r['city']}: "
+            f"{(r['semantic_text'] or '')[:200]}... "
+            f"Rating: {r['rating'] or 'N/A'}, "
+            f"Price: {'INR ' + str(r['price_per_night']) + '/night' if r['price_per_night'] else 'N/A'}, "
             f"{'Available' if r['available'] else 'Limited availability'}"
             for r in results[:5]
         ])

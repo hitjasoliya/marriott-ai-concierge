@@ -199,7 +199,7 @@ async def generate_follow_up(
     raw = re.sub(r"\s*```$", "", raw)
 
     try:
-        return json.loads(raw)
+        result = json.loads(raw)
     except json.JSONDecodeError:
         return {
             "needs_follow_up": True,
@@ -208,6 +208,20 @@ async def generate_follow_up(
             "missing_fields": missing_fields,
             "confirmed_fields": {},
         }
+
+    # B8: Don't let the LLM bypass gap detection
+    if missing_fields:
+        result["needs_follow_up"] = True
+
+    # B9: Normalize missing_fields to a list
+    if not isinstance(result.get("missing_fields"), list):
+        result["missing_fields"] = missing_fields
+
+    # Normalize suggestions to a list
+    if not isinstance(result.get("suggestions"), list):
+        result["suggestions"] = []
+
+    return result
 
 
 AMENITY_SUGGESTIONS_BY_TYPE: dict[str, list[str]] = {

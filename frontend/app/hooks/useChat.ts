@@ -46,12 +46,14 @@ export function useChat() {
           exploreWithoutDates,
         );
 
+        const errorText = data.error || (!data.reply && !data.hotels?.length ? "Something went wrong. Please try again." : null);
+
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id
               ? {
                   ...m,
-                  content: data.reply,
+                  content: errorText || data.reply,
                   hotels: data.hotels,
                   intent: data.intent,
                   suggestions: data.suggestions,
