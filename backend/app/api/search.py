@@ -6,9 +6,9 @@ from typing import AsyncGenerator
 
 import google.generativeai as genai
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sse_starlette.sse import EventSourceResponse
 
 from app.db.models import Hotel
 from app.db.session import get_db
@@ -49,7 +49,11 @@ def _has_hotel_search_intent(intent: dict) -> bool:
     )
 
 
-async def _stream_gemini_response(system_prompt: str, user_prompt: str) -> AsyncGenerator[dict, None]:
+def _sse(data: str) -> str:
+    return f"data: {data}\n\n"
+
+
+async def _stream_gemini_response(system_prompt: str, user_prompt: str) -> AsyncGenerator[str, None]:
     model = genai.GenerativeModel("gemini-3.1-flash-lite")
     response = model.generate_content(
         f"{system_prompt}\n\n{user_prompt}",
@@ -57,20 +61,21 @@ async def _stream_gemini_response(system_prompt: str, user_prompt: str) -> Async
     )
     for chunk in response:
         if chunk.text:
-            yield {"event": "token", "data": json.dumps({"type": "token", "data": chunk.text})}
+            yield _sse(json.dumps({"type": "token", "data": chunk.text}))
             await asyncio.sleep(0)
 
 
 @router.post("/search")
 async def search(request: SearchRequest):
-    async def event_stream() -> AsyncGenerator[dict, None]:
+    async def event_stream() -> AsyncGenerator[str, None]:
         try:
             intent = await extract_intent(request.query)
         except Exception as e:
-            yield {"event": "error", "data": json.dumps({"type": "error", "message": f"Intent extraction failed: {str(e)}"})}
+            yield _sse(json.dumps({"type": "error", "data": f"Intent extraction failed: {str(e)}"}))
+            yield _sse(json.dumps({"type": "done"}))
             return
 
-        yield {"event": "intent", "data": json.dumps({"type": "intent", "data": intent})}
+        yield _sse(json.dumps({"type": "intent", "data": intent}))
 
         if not _has_hotel_search_intent(intent):
             async for evt in _stream_gemini_response(
@@ -81,18 +86,18 @@ async def search(request: SearchRequest):
                 f"what kind of hotel they're looking for."
             ):
                 yield evt
-            yield {"event": "done", "data": json.dumps({"type": "done"})}
+            yield _sse(json.dumps({"type": "done"}))
             return
 
         ref_point = None
         if intent.get("near_landmark"):
-            yield {"event": "status", "data": json.dumps({"type": "status", "message": f"Resolving landmark: {intent['near_landmark']}..."})}
+            yield _sse(json.dumps({"type": "status", "data": f"Resolving landmark: {intent['near_landmark']}..."}))
             ref_point = await resolve_landmark(intent["near_landmark"])
 
         if ref_point is None and intent.get("city"):
             ref_point = get_city_coordinates(intent["city"])
 
-        yield {"event": "status", "data": json.dumps({"type": "status", "message": "Searching hotels..."})}
+        yield _sse(json.dumps({"type": "status", "data": "Searching hotels..."}))
 
         from app.db.session import async_session
         async with async_session() as session:
@@ -114,7 +119,7 @@ async def search(request: SearchRequest):
                 distance_map = {h.id: d for h, d in geo_results}
 
             if not hotels:
-                yield {"event": "hotels", "data": json.dumps({"type": "hotels", "data": []})}
+                yield _sse(json.dumps({"type": "hotels", "data": []}))
                 async for evt in _stream_gemini_response(
                     CHAT_SYSTEM_PROMPT,
                     f"Guest query: {request.query}\n\n"
@@ -122,7 +127,7 @@ async def search(request: SearchRequest):
                     f"try a different city, remove filters, or describe the vibe they want."
                 ):
                     yield evt
-                yield {"event": "done", "data": json.dumps({"type": "done"})}
+                yield _sse(json.dumps({"type": "done"}))
                 return
 
             query_text = build_query_semantic_text(intent)
@@ -172,7 +177,7 @@ async def search(request: SearchRequest):
                     "price_total": avail.get("price_total"),
                 })
 
-            yield {"event": "hotels", "data": json.dumps({"type": "hotels", "data": results})}
+            yield _sse(json.dumps({"type": "hotels", "data": results}))
 
             hotel_context = "\n".join([
                 f"- {r['name']} in {r['city']}: {r['semantic_text'][:200]}... Rating: {r['rating']}, "
@@ -191,9 +196,9 @@ async def search(request: SearchRequest):
             ):
                 yield evt
 
-        yield {"event": "done", "data": json.dumps({"type": "done"})}
+        yield _sse(json.dumps({"type": "done"}))
 
-    return EventSourceResponse(event_stream())
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get("/hotel/{hotel_id}", response_model=HotelResponse)
