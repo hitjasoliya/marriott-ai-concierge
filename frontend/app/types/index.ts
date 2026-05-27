@@ -42,17 +42,38 @@ export interface IntentData {
   guests: number;
 }
 
+export interface SearchResponse {
+  intent: IntentData | null;
+  hotels: SearchResultItem[];
+  reply: string;
+  error?: string;
+}
+
+export interface BookingRequest {
+  hotel_id: number;
+  guest_name: string;
+  email: string;
+  check_in: string;
+  check_out: string;
+  guests: number;
+}
+
+export interface BookingResponse {
+  booking_id: string;
+  status: string;
+  hotel_name: string;
+  hotel_city: string;
+  check_in: string;
+  check_out: string;
+  guests: number;
+  price_total: number | null;
+  guest_name: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   hotels?: SearchResultItem[];
-  intent?: IntentData;
-  isStreaming?: boolean;
-}
-
-export interface SSEEvent {
-  type: "intent" | "hotels" | "token" | "done" | "status" | "error";
-  data?: unknown;
-  message?: string;
+  intent?: IntentData | null;
 }

@@ -12,11 +12,12 @@ async def retrieve_by_radius(
     limit: int = 50,
 ) -> list[tuple[Hotel, float]]:
     stmt = text("""
-        SELECT h.*, ST_Distance(h.geom, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)) AS distance_m
+        SELECT h.*,
+               ST_Distance(h.geom::geography, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography) AS distance_m
         FROM hotels h
         WHERE ST_DWithin(
-            h.geom,
-            ST_SetSRID(ST_MakePoint(:lon, :lat), 4326),
+            h.geom::geography,
+            ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
             :radius_m
         )
         ORDER BY distance_m ASC

@@ -58,3 +58,24 @@ class SearchResultItem(BaseModel):
     distance_km: Optional[float] = None
     available: bool = False
     price_total: Optional[int] = None
+
+
+class BookingRequest(BaseModel):
+    hotel_id: int
+    guest_name: str
+    email: str
+    check_in: str
+    check_out: str
+    guests: int = Field(default=2, ge=1)
+
+
+class BookingResponse(BaseModel):
+    booking_id: str
+    status: str
+    hotel_name: str
+    hotel_city: str
+    check_in: str
+    check_out: str
+    guests: int
+    price_total: Optional[int] = None
+    guest_name: str

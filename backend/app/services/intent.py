@@ -36,50 +36,60 @@ For relative dates:
 """
 
 
-def _resolve_relative_date(text: str, today: date) -> Optional[str]:
+_WEEKDAYS = {
+    "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+    "friday": 4, "saturday": 5, "sunday": 6,
+}
+
+
+def _resolve_weekday(text_lower: str, today: date, day_name: str, day_index: int) -> str | None:
+    """Resolve 'this <day>' or 'next <day>' to a date."""
+    this_pattern = f"this {day_name}"
+    next_pattern = f"next {day_name}"
+
+    if this_pattern in text_lower:
+        days_until = (day_index - today.weekday()) % 7
+        if days_until == 0:
+            days_until = 7  # "this Friday" on Friday = next week
+        return (today + timedelta(days=days_until)).isoformat()
+
+    if next_pattern in text_lower:
+        days_until = (day_index - today.weekday()) % 7
+        if days_until == 0:
+            days_until = 7
+        return (today + timedelta(days=days_until + 7)).isoformat()
+
+    return None
+
+
+def _resolve_relative_date(text: str, today: date) -> str | None:
+    """Resolve relative date expressions to YYYY-MM-DD. Returns None if no match."""
     text_lower = text.lower()
+
+    if "today" in text_lower or "tonight" in text_lower:
+        return today.isoformat()
+
     if "tomorrow" in text_lower:
         return (today + timedelta(days=1)).isoformat()
-    if "next weekend" in text_lower:
+
+    if "day after tomorrow" in text_lower:
+        return (today + timedelta(days=2)).isoformat()
+
+    if "this weekend" in text_lower or "the weekend" in text_lower:
         days_until_saturday = (5 - today.weekday()) % 7
         if days_until_saturday == 0:
             days_until_saturday = 7
         return (today + timedelta(days=days_until_saturday)).isoformat()
-    if "next friday" in text_lower:
-        days_until_friday = (4 - today.weekday()) % 7
-        if days_until_friday == 0:
-            days_until_friday = 7
-        return (today + timedelta(days=days_until_friday)).isoformat()
-    if "next monday" in text_lower:
-        days_until = (0 - today.weekday()) % 7
-        if days_until == 0:
-            days_until = 7
-        return (today + timedelta(days=days_until)).isoformat()
-    if "next tuesday" in text_lower:
-        days_until = (1 - today.weekday()) % 7
-        if days_until == 0:
-            days_until = 7
-        return (today + timedelta(days=days_until)).isoformat()
-    if "next wednesday" in text_lower:
-        days_until = (2 - today.weekday()) % 7
-        if days_until == 0:
-            days_until = 7
-        return (today + timedelta(days=days_until)).isoformat()
-    if "next thursday" in text_lower:
-        days_until = (3 - today.weekday()) % 7
-        if days_until == 0:
-            days_until = 7
-        return (today + timedelta(days=days_until)).isoformat()
-    if "next saturday" in text_lower:
-        days_until = (5 - today.weekday()) % 7
-        if days_until == 0:
-            days_until = 7
-        return (today + timedelta(days=days_until)).isoformat()
-    if "next sunday" in text_lower:
-        days_until = (6 - today.weekday()) % 7
-        if days_until == 0:
-            days_until = 7
-        return (today + timedelta(days=days_until)).isoformat()
+
+    if "next weekend" in text_lower:
+        days_until_saturday = (5 - today.weekday()) % 7 + 7
+        return (today + timedelta(days=days_until_saturday)).isoformat()
+
+    for day_name, day_index in _WEEKDAYS.items():
+        resolved = _resolve_weekday(text_lower, today, day_name, day_index)
+        if resolved:
+            return resolved
+
     return None
 
 
@@ -106,6 +116,13 @@ async def extract_intent(query: str) -> dict:
         result["check_in"] = _resolve_relative_date(query, today)
     if not result.get("check_out"):
         result["check_out"] = _resolve_relative_date(query, today)
+        # If we resolved check_in but not check_out, default check_out to check_in + 1 day
+        if not result["check_out"] and result["check_in"]:
+            try:
+                ci = date.fromisoformat(result["check_in"])
+                result["check_out"] = (ci + timedelta(days=1)).isoformat()
+            except (ValueError, TypeError):
+                pass
 
     result.setdefault("guests", 2)
     result.setdefault("brand", "Marriott")

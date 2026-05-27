@@ -41,29 +41,34 @@ async def rerank_by_semantic_similarity(
 
 
 def build_query_semantic_text(intent: dict) -> str:
-    parts = []
+    """Build a natural-language query for embedding similarity search.
+
+    Produces prose that matches the style of hotel semantic_text in the DB,
+    so the BGE embedding model can compute meaningful cosine similarity.
+    """
+    descriptors: list[str] = []
 
     semantic_intent = intent.get("semantic_intent", [])
     if semantic_intent:
-        parts.append("semantic intents: " + ", ".join(semantic_intent))
+        descriptors.extend(semantic_intent)
 
     hotel_type = intent.get("hotel_type")
     if hotel_type:
-        parts.append(f"hotel type: {hotel_type}")
+        descriptors.append(hotel_type)
 
     requested_amenities = intent.get("amenities", [])
     if requested_amenities:
-        parts.append("amenities: " + ", ".join(requested_amenities))
+        descriptors.append(" with " + ", ".join(requested_amenities))
+
+    # Build a natural-language sentence: "Luxury beachfront resort in Goa with pool, spa"
+    phrase = " ".join(descriptors) if descriptors else "hotel"
 
     city = intent.get("city")
-    if city:
-        parts.append(f"near or in: {city}")
-
     landmark = intent.get("near_landmark")
+
+    if city:
+        phrase += f" in {city}"
     if landmark:
-        parts.append(f"near landmark: {landmark}")
+        phrase += f" near {landmark}"
 
-    if not parts:
-        return intent.get("query", "")
-
-    return ". ".join(parts)
+    return phrase

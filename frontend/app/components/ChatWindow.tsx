@@ -41,7 +41,7 @@ export default function ChatWindow({ messages, isLoading }: Props) {
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
-        {isLoading && messages[messages.length - 1]?.role === "assistant" && messages[messages.length - 1]?.isStreaming && (
+        {isLoading && messages[messages.length - 1]?.role === "assistant" && !messages[messages.length - 1]?.content && (
           <TypingIndicator />
         )}
       </div>
