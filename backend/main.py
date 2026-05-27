@@ -13,6 +13,8 @@ async def lifespan(app: FastAPI):
     yield
 
 
+from app.api.search import router as search_router
+
 app = FastAPI(title="Marriott AI Concierge", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
@@ -22,6 +24,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(search_router)
 
 
 @app.get("/health")
