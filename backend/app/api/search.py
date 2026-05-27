@@ -28,12 +28,42 @@ genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
 
 router = APIRouter()
 
+CHAT_SYSTEM_PROMPT = (
+    "You are a helpful, knowledgeable Marriott hotel concierge. "
+    "You help guests find the perfect Marriott property for their needs. "
+    "Answer casual greetings and questions warmly and briefly. "
+    "When hotel recommendations are provided, mention specific hotel names, "
+    "unique features, and why each fits the guest's preferences. "
+    "Keep responses concise. Never make up details."
+)
+
+
+def _has_hotel_search_intent(intent: dict) -> bool:
+    return bool(
+        intent.get("city")
+        or intent.get("near_landmark")
+        or intent.get("semantic_intent")
+        or intent.get("amenities")
+        or intent.get("hotel_type")
+        or intent.get("budget_max_per_night")
+    )
+
+
+async def _stream_gemini_response(system_prompt: str, user_prompt: str) -> AsyncGenerator[dict, None]:
+    model = genai.GenerativeModel("gemini-3.1-flash-lite")
+    response = model.generate_content(
+        f"{system_prompt}\n\n{user_prompt}",
+        stream=True,
+    )
+    for chunk in response:
+        if chunk.text:
+            yield {"event": "token", "data": json.dumps({"type": "token", "data": chunk.text})}
+            await asyncio.sleep(0)
+
 
 @router.post("/search")
 async def search(request: SearchRequest):
     async def event_stream() -> AsyncGenerator[dict, None]:
-        yield {"event": "status", "data": json.dumps({"type": "start", "message": "Extracting search intent..."})}
-
         try:
             intent = await extract_intent(request.query)
         except Exception as e:
@@ -41,6 +71,18 @@ async def search(request: SearchRequest):
             return
 
         yield {"event": "intent", "data": json.dumps({"type": "intent", "data": intent})}
+
+        if not _has_hotel_search_intent(intent):
+            async for evt in _stream_gemini_response(
+                CHAT_SYSTEM_PROMPT,
+                f"Guest says: {request.query}\n\n"
+                f"Respond warmly and briefly. Introduce yourself as the Marriott AI Concierge "
+                f"if this is a greeting. Keep it to 1-2 sentences and invite them to describe "
+                f"what kind of hotel they're looking for."
+            ):
+                yield evt
+            yield {"event": "done", "data": json.dumps({"type": "done"})}
+            return
 
         ref_point = None
         if intent.get("near_landmark"):
@@ -73,7 +115,13 @@ async def search(request: SearchRequest):
 
             if not hotels:
                 yield {"event": "hotels", "data": json.dumps({"type": "hotels", "data": []})}
-                yield {"event": "token", "data": json.dumps({"type": "token", "data": "I couldn't find any Marriott hotels matching your criteria. Try broadening your search — for example, remove the city filter or adjust your budget."})}
+                async for evt in _stream_gemini_response(
+                    CHAT_SYSTEM_PROMPT,
+                    f"Guest query: {request.query}\n\n"
+                    f"No hotels matched. Ask them to broaden their search — "
+                    f"try a different city, remove filters, or describe the vibe they want."
+                ):
+                    yield evt
                 yield {"event": "done", "data": json.dumps({"type": "done"})}
                 return
 
@@ -100,7 +148,6 @@ async def search(request: SearchRequest):
             rankings = rank_hotels(scored, distance_map, available_ids)
             top_5 = rankings[:5]
 
-            top_hotel_ids = [r.hotel_id for r in top_5]
             hotel_map = {h.id: h for h, _ in scored}
 
             results = []
@@ -134,33 +181,15 @@ async def search(request: SearchRequest):
                 for r in results
             ])
 
-            system_prompt = (
-                "You are a helpful, knowledgeable Marriott hotel concierge. "
-                "You help guests find the perfect Marriott property for their needs. "
-                "Be warm, conversational, and specific. Mention hotel names, unique features, "
-                "and why each hotel fits the guest's preferences. "
-                "Keep responses concise — 2-3 sentences per hotel recommendation. "
-                "Never make up details not in the hotel data provided."
-            )
-
-            user_prompt = (
+            async for evt in _stream_gemini_response(
+                CHAT_SYSTEM_PROMPT,
                 f"Guest query: {request.query}\n\n"
                 f"Intent extracted: {json.dumps(intent)}\n\n"
                 f"Top matching hotels:\n{hotel_context}\n\n"
                 f"Write a warm, helpful response recommending these hotels to the guest. "
                 f"Mention specific hotel names, atmosphere, standout amenities, and why each matches their query."
-            )
-
-            model = genai.GenerativeModel("gemini-3.1-flash-lite")
-            response = model.generate_content(
-                f"{system_prompt}\n\n{user_prompt}",
-                stream=True,
-            )
-
-            for chunk in response:
-                if chunk.text:
-                    yield {"event": "token", "data": json.dumps({"type": "token", "data": chunk.text})}
-                    await asyncio.sleep(0)
+            ):
+                yield evt
 
         yield {"event": "done", "data": json.dumps({"type": "done"})}
 
