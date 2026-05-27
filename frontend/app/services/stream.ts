@@ -2,10 +2,21 @@ import type { BookingRequest, BookingResponse, SearchResponse } from "../types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-export async function search(query: string, guests: number): Promise<SearchResponse> {
+export async function search(
+  query: string,
+  guests: number,
+  sessionId?: string,
+  selectedAmenities?: string[],
+  exploreWithoutDates?: boolean,
+): Promise<SearchResponse> {
+  const body: Record<string, unknown> = { query, guests };
+  if (sessionId) body.session_id = sessionId;
+  if (selectedAmenities?.length) body.selected_amenities = selectedAmenities;
+  if (exploreWithoutDates) body.explore_without_dates = true;
+
   const response = await fetch(`${API_BASE}/search`, {
     method: "POST",
-    body: JSON.stringify({ query, guests }),
+    body: JSON.stringify(body),
     headers: { "Content-Type": "application/json" },
   });
 
@@ -13,7 +24,16 @@ export async function search(query: string, guests: number): Promise<SearchRespo
     throw new Error("Search request failed");
   }
 
-  return response.json();
+  const data = await response.json();
+
+  // Map backend snake_case to frontend camelCase
+  return {
+    ...data,
+    suggestedAmenities: data.suggested_amenities ?? data.suggestedAmenities ?? [],
+    missingFields: data.missing_fields ?? data.missingFields ?? [],
+    accumulatedIntent: data.accumulated_intent ?? data.accumulatedIntent ?? null,
+    sessionId: data.session_id ?? data.sessionId ?? null,
+  };
 }
 
 export async function createBooking(data: BookingRequest): Promise<BookingResponse> {

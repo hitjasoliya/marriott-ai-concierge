@@ -1,12 +1,23 @@
 "use client";
 
+import { useCallback } from "react";
 import { useChat } from "./hooks/useChat";
 import ChatWindow from "./components/ChatWindow";
 import ChatInput from "./components/ChatInput";
 
 export default function Home() {
-  const { messages, send, isLoading } = useChat();
+  const { messages, send, isLoading, selectedAmenities, toggleAmenity } = useChat();
   const hasMessages = messages.length > 0;
+
+  const handleChipSelect = useCallback(
+    (text: string) => {
+      const exploreWithoutDates =
+        text.toLowerCase().includes("without dates") ||
+        text.toLowerCase().includes("no dates");
+      send(text, exploreWithoutDates);
+    },
+    [send],
+  );
 
   return (
     <div className="h-screen flex flex-col max-w-3xl mx-auto p-4">
@@ -16,8 +27,14 @@ export default function Home() {
             <h1 className="text-lg font-semibold text-gray-800">Marriott AI Concierge</h1>
             <p className="text-xs text-gray-400">Find your perfect stay</p>
           </header>
-          <ChatWindow messages={messages} isLoading={isLoading} />
-          <ChatInput onSend={send} disabled={isLoading} />
+          <ChatWindow
+            messages={messages}
+            isLoading={isLoading}
+            onChipSelect={handleChipSelect}
+            onAmenityToggle={toggleAmenity}
+            selectedAmenities={selectedAmenities}
+          />
+          <ChatInput onSend={(t) => send(t)} disabled={isLoading} />
         </>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center gap-6">

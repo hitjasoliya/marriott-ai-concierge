@@ -2,6 +2,7 @@ import json
 import os
 import random
 import string
+import uuid
 
 import google.generativeai as genai
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,10 +13,19 @@ from app.db.models import Hotel
 from app.db.session import get_db
 from app.models.schemas import (
     AvailabilityRequest, AvailabilityResponse, BookingRequest, BookingResponse,
-    HotelResponse, IntentResponse, SearchRequest, SearchResultItem,
+    HotelResponse, IntentResponse, SearchRequest, SearchResultItem, SearchResponse,
 )
 from app.services.intent import extract_intent
 from app.services.geo import resolve_landmark, get_city_coordinates
+from app.services.conversation import (
+    _query_mentions_guests,
+    add_turn,
+    generate_follow_up,
+    generate_suggestions_for_results,
+    get_default_amenity_suggestions,
+    get_or_create_session,
+    identify_missing_fields,
+)
 from app.retrieval.sql_retrieval import retrieve_by_filters
 from app.retrieval.geo_retrieval import retrieve_by_radius
 from app.retrieval.reranker import rerank_by_semantic_similarity, build_query_semantic_text
@@ -53,23 +63,8 @@ def _generate_gemini_response(system_prompt: str, user_prompt: str) -> str:
     return response.text or ""
 
 
-@router.post("/search")
-async def search(request: SearchRequest):
-    try:
-        intent = await extract_intent(request.query)
-    except Exception as e:
-        return {"error": f"Intent extraction failed: {str(e)}", "intent": None, "hotels": [], "reply": ""}
-
-    if not _has_hotel_search_intent(intent):
-        reply = _generate_gemini_response(
-            CHAT_SYSTEM_PROMPT,
-            f"Guest says: {request.query}\n\n"
-            f"Respond warmly and briefly. Introduce yourself as the Marriott AI Concierge "
-            f"if this is a greeting. Keep it to 1-2 sentences and invite them to describe "
-            f"what kind of hotel they're looking for."
-        )
-        return {"intent": intent, "hotels": [], "reply": reply}
-
+async def _run_search_pipeline(intent: dict, query: str) -> dict:
+    """Run the full hotel search pipeline. Returns {hotels: list, reply: str}."""
     ref_point = None
     if intent.get("near_landmark"):
         ref_point = await resolve_landmark(intent["near_landmark"])
@@ -99,15 +94,15 @@ async def search(request: SearchRequest):
         if not hotels:
             reply = _generate_gemini_response(
                 CHAT_SYSTEM_PROMPT,
-                f"Guest query: {request.query}\n\n"
+                f"Guest query: {query}\n\n"
                 f"No hotels matched. Ask them to broaden their search — "
                 f"try a different city, remove filters, or describe the vibe they want."
             )
-            return {"intent": intent, "hotels": [], "reply": reply}
+            return {"hotels": [], "reply": reply}
 
         query_text = build_query_semantic_text(intent)
         if not query_text:
-            query_text = request.query
+            query_text = query
 
         scored = await rerank_by_semantic_similarity(session, query_text, hotels)
         top_candidates = scored[:20]
@@ -151,6 +146,11 @@ async def search(request: SearchRequest):
                 "price_total": avail.get("price_total"),
             })
 
+        # Build reply context
+        dates_note = ""
+        if not check_in:
+            dates_note = " (Note: dates were not provided, so availability is not confirmed. Suggest they check for their specific dates.)"
+
         hotel_context = "\n".join([
             f"- {r['name']} in {r['city']}: {r['semantic_text'][:200]}... Rating: {r['rating']}, "
             f"Price: INR {r['price_per_night']}/night, "
@@ -160,14 +160,112 @@ async def search(request: SearchRequest):
 
         reply = _generate_gemini_response(
             CHAT_SYSTEM_PROMPT,
-            f"Guest query: {request.query}\n\n"
+            f"Guest query: {query}\n\n"
             f"Intent extracted: {json.dumps(intent)}\n\n"
             f"Top matching hotels:\n{hotel_context}\n\n"
+            f"{dates_note}\n"
             f"Write a warm, helpful response recommending these hotels to the guest. "
             f"Mention specific hotel names, atmosphere, standout amenities, and why each matches their query."
         )
 
-    return {"intent": intent, "hotels": results, "reply": reply}
+    return {"hotels": results, "reply": reply}
+
+
+@router.post("/search", response_model=SearchResponse)
+async def search(request: SearchRequest):
+    session_id = request.session_id or str(uuid.uuid4())
+    conv = get_or_create_session(session_id)
+    accumulated_intent = dict(conv["accumulated_intent"])
+
+    # 1. Extract intent from current query
+    try:
+        current_intent = await extract_intent(request.query, accumulated_intent)
+    except Exception as e:
+        return SearchResponse(
+            stage="results",
+            error=f"Intent extraction failed: {str(e)}",
+            session_id=session_id,
+        )
+
+    # 1b. Track explicit guest mentions across conversation
+    if _query_mentions_guests(request.query):
+        current_intent["_guests_confirmed"] = True
+
+    # 2. Merge user-selected amenities from chips
+    if request.selected_amenities:
+        current_intent["amenities"] = sorted(
+            set(current_intent.get("amenities", [])) | set(request.selected_amenities)
+        )
+
+    # 3. Merge with accumulated intent from conversation history
+    from app.services.conversation import _merge_intent
+    merged_intent = _merge_intent(accumulated_intent, current_intent)
+
+    # 4. Check if this is a non-hotel query (greeting, etc.)
+    if not _has_hotel_search_intent(merged_intent):
+        reply = _generate_gemini_response(
+            CHAT_SYSTEM_PROMPT,
+            f"Guest says: {request.query}\n\n"
+            f"Respond warmly and briefly. Introduce yourself as the Marriott AI Concierge "
+            f"if this is a greeting. Keep it to 1-2 sentences and invite them to describe "
+            f"what kind of hotel they're looking for."
+        )
+        add_turn(session_id, "user", request.query, current_intent)
+        add_turn(session_id, "assistant", reply, None)
+        return SearchResponse(
+            stage="results",
+            reply=reply,
+            intent=current_intent,
+            accumulated_intent=merged_intent,
+            session_id=session_id,
+        )
+
+    # 5. Identify missing fields
+    missing = identify_missing_fields(merged_intent, request.query)
+    critical_missing = [f for f in missing if f in ("check_in", "check_out", "city")]
+
+    # 6. If anything missing (critical or nice-to-have like guests) and not exploring, generate follow-up
+    if missing and not request.explore_without_dates:
+        gap = await generate_follow_up(current_intent, missing, request.query, merged_intent)
+
+        add_turn(session_id, "user", request.query, current_intent)
+        conv["accumulated_intent"] = merged_intent
+
+        if gap.get("needs_follow_up", True):
+            add_turn(session_id, "assistant", gap["reply"], None)
+            return SearchResponse(
+                stage="follow_up",
+                reply=gap["reply"],
+                suggestions=gap.get("suggestions", []),
+                suggested_amenities=get_default_amenity_suggestions(merged_intent),
+                missing_fields=sorted(set(gap.get("missing_fields", []) + missing)),
+                accumulated_intent=merged_intent,
+                session_id=session_id,
+                intent=current_intent,
+            )
+
+    # 7. Run full search pipeline
+    pipeline_result = await _run_search_pipeline(merged_intent, request.query)
+
+    # 8. Store turns
+    add_turn(session_id, "user", request.query, current_intent)
+    add_turn(session_id, "assistant", pipeline_result["reply"], merged_intent)
+    conv["accumulated_intent"] = merged_intent
+
+    # 9. Generate result-stage suggestions
+    result_suggestions = await generate_suggestions_for_results(
+        merged_intent, pipeline_result["hotels"]
+    )
+
+    return SearchResponse(
+        stage="results",
+        reply=pipeline_result["reply"],
+        suggestions=result_suggestions,
+        intent=current_intent,
+        hotels=pipeline_result["hotels"],
+        accumulated_intent=merged_intent,
+        session_id=session_id,
+    )
 
 
 @router.get("/hotel/{hotel_id}", response_model=HotelResponse)

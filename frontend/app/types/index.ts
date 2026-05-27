@@ -46,6 +46,12 @@ export interface SearchResponse {
   intent: IntentData | null;
   hotels: SearchResultItem[];
   reply: string;
+  stage: "follow_up" | "results";
+  suggestions: string[];
+  suggestedAmenities: string[];
+  missingFields: string[];
+  accumulatedIntent: IntentData | null;
+  sessionId: string | null;
   error?: string;
 }
 
@@ -76,4 +82,7 @@ export interface ChatMessage {
   content: string;
   hotels?: SearchResultItem[];
   intent?: IntentData | null;
+  suggestions?: string[];
+  suggestedAmenities?: string[];
+  stage?: "follow_up" | "results";
 }

@@ -93,7 +93,7 @@ def _resolve_relative_date(text: str, today: date) -> str | None:
     return None
 
 
-async def extract_intent(query: str) -> dict:
+async def extract_intent(query: str, accumulated_intent: dict | None = None) -> dict:
     today = date.today()
     tomorrow = today + timedelta(days=1)
 
@@ -101,6 +101,25 @@ async def extract_intent(query: str) -> dict:
         today_date=today.isoformat(),
         tomorrow_date=tomorrow.isoformat(),
     )
+
+    if accumulated_intent:
+        context_parts = []
+        if accumulated_intent.get("city"):
+            context_parts.append(f"City already established: {accumulated_intent['city']}")
+        if accumulated_intent.get("hotel_type"):
+            context_parts.append(f"Hotel type already established: {accumulated_intent['hotel_type']}")
+        if accumulated_intent.get("amenities"):
+            context_parts.append(f"Amenities already selected: {', '.join(accumulated_intent['amenities'])}")
+        if accumulated_intent.get("semantic_intent"):
+            context_parts.append(f"Vibe already established: {', '.join(accumulated_intent['semantic_intent'])}")
+        if accumulated_intent.get("check_in"):
+            context_parts.append(f"Check-in already set: {accumulated_intent['check_in']}")
+        if accumulated_intent.get("check_out"):
+            context_parts.append(f"Check-out already set: {accumulated_intent['check_out']}")
+        if accumulated_intent.get("guests") and accumulated_intent["guests"] != 2:
+            context_parts.append(f"Guests already set: {accumulated_intent['guests']}")
+        if context_parts:
+            prompt += "\n\nPrevious conversation context (use this to resolve ambiguous references):\n" + "\n".join(context_parts)
 
     model = genai.GenerativeModel("gemini-3.1-flash-lite")
     response = model.generate_content(f"{prompt}\n\nUser query: {query}")

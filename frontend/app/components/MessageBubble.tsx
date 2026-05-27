@@ -3,9 +3,16 @@
 import { useState } from "react";
 import type { ChatMessage } from "../types";
 import HotelResultBlock from "./HotelResultBlock";
+import SuggestionChips from "./SuggestionChips";
+import AmenityChips from "./AmenityChips";
 
 interface Props {
   message: ChatMessage;
+  onChipSelect?: (text: string) => void;
+  onAmenityToggle?: (amenity: string) => void;
+  selectedAmenities?: string[];
+  disabled?: boolean;
+  isLatest?: boolean;
 }
 
 const PAGE_SIZE = 5;
@@ -18,7 +25,14 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return pages;
 }
 
-export default function MessageBubble({ message }: Props) {
+export default function MessageBubble({
+  message,
+  onChipSelect,
+  onAmenityToggle,
+  selectedAmenities,
+  disabled,
+  isLatest,
+}: Props) {
   const isUser = message.role === "user";
   const [hotelPage, setHotelPage] = useState(0);
 
@@ -40,6 +54,24 @@ export default function MessageBubble({ message }: Props) {
                 {message.content}
               </div>
             )}
+
+            {isLatest && message.suggestions && message.suggestions.length > 0 && onChipSelect && (
+              <SuggestionChips
+                suggestions={message.suggestions}
+                onSelect={onChipSelect}
+                disabled={disabled}
+              />
+            )}
+
+            {isLatest && message.suggestedAmenities && message.suggestedAmenities.length > 0 && onAmenityToggle && (
+              <AmenityChips
+                amenities={message.suggestedAmenities}
+                selected={selectedAmenities ?? []}
+                onToggle={onAmenityToggle}
+                disabled={disabled}
+              />
+            )}
+
             {currentHotels.length > 0 && (
               <div className="mt-4 space-y-3">
                 {currentHotels.map((hotel) => (

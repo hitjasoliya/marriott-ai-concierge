@@ -8,9 +8,18 @@ import TypingIndicator from "./TypingIndicator";
 interface Props {
   messages: ChatMessage[];
   isLoading: boolean;
+  onChipSelect: (text: string) => void;
+  onAmenityToggle: (amenity: string) => void;
+  selectedAmenities: string[];
 }
 
-export default function ChatWindow({ messages, isLoading }: Props) {
+export default function ChatWindow({
+  messages,
+  isLoading,
+  onChipSelect,
+  onAmenityToggle,
+  selectedAmenities,
+}: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -38,8 +47,16 @@ export default function ChatWindow({ messages, isLoading }: Props) {
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6 scrollbar-thin">
       <div className="space-y-6">
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
+        {messages.map((msg, i) => (
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            isLatest={i === messages.length - 1 && msg.role === "assistant"}
+            onChipSelect={onChipSelect}
+            onAmenityToggle={onAmenityToggle}
+            selectedAmenities={selectedAmenities}
+            disabled={isLoading}
+          />
         ))}
         {isLoading && messages[messages.length - 1]?.role === "assistant" && !messages[messages.length - 1]?.content && (
           <TypingIndicator />

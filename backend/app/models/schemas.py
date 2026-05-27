@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
 
 class HotelResponse(BaseModel):
@@ -23,6 +23,9 @@ class HotelResponse(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     guests: int = Field(default=2, ge=1)
+    session_id: Optional[str] = None
+    selected_amenities: list[str] = []
+    explore_without_dates: bool = False
 
 
 class AvailabilityRequest(BaseModel):
@@ -79,3 +82,16 @@ class BookingResponse(BaseModel):
     guests: int
     price_total: Optional[int] = None
     guest_name: str
+
+
+class SearchResponse(BaseModel):
+    stage: str = "results"  # "follow_up" | "results"
+    reply: str = ""
+    intent: Optional[dict[str, Any]] = None
+    hotels: list[dict[str, Any]] = []
+    suggestions: list[str] = []
+    suggested_amenities: list[str] = []
+    missing_fields: list[str] = []
+    accumulated_intent: Optional[dict[str, Any]] = None
+    session_id: Optional[str] = None
+    error: Optional[str] = None
