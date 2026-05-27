@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+asyncpg
+psycopg2-binary
+geoalchemy2
+pgvector
+sentence-transformers
+torch
+google-generativeai
+pydantic>=2.0
+httpx
+python-dotenv
