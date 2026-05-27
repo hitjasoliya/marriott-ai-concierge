@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    build: ./db
     environment:
       POSTGRES_DB: marriott_hotels
       POSTGRES_USER: marriott

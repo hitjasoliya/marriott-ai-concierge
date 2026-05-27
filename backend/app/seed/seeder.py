@@ -2,9 +2,12 @@ import asyncio
 import os
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from geoalchemy2.shape import from_shape
+from shapely.geometry import Point
 
 from app.seed.data import HOTELS
 from app.embeddings.model import embed_batch
+from app.db.models import Hotel
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql+asyncpg://marriott:password@localhost:5432/marriott_hotels")
 
@@ -23,28 +26,26 @@ async def seed():
     embeddings = embed_batch(semantic_texts)
 
     async with session_factory() as session:
+        hotels = []
         for i, hotel_data in enumerate(HOTELS):
-            stmt = text("""
-                INSERT INTO hotels (name, brand, city, latitude, longitude, description, semantic_text,
-                                    embedding, rating, amenities, price_per_night, hotel_type, geom)
-                VALUES (:name, :brand, :city, :latitude, :longitude, :description, :semantic_text,
-                        :embedding, :rating, :amenities, :price_per_night, :hotel_type,
-                        ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326))
-            """)
-            await session.execute(stmt, {
-                "name": hotel_data["name"],
-                "brand": hotel_data["brand"],
-                "city": hotel_data["city"],
-                "latitude": hotel_data["latitude"],
-                "longitude": hotel_data["longitude"],
-                "description": hotel_data["description"],
-                "semantic_text": hotel_data["semantic_text"],
-                "embedding": embeddings[i],
-                "rating": hotel_data["rating"],
-                "amenities": hotel_data["amenities"],
-                "price_per_night": hotel_data["price_per_night"],
-                "hotel_type": hotel_data["hotel_type"],
-            })
+            hotel = Hotel(
+                name=hotel_data["name"],
+                brand=hotel_data["brand"],
+                city=hotel_data["city"],
+                latitude=hotel_data["latitude"],
+                longitude=hotel_data["longitude"],
+                description=hotel_data["description"],
+                semantic_text=hotel_data["semantic_text"],
+                embedding=embeddings[i],
+                rating=hotel_data["rating"],
+                amenities=hotel_data["amenities"],
+                price_per_night=hotel_data["price_per_night"],
+                hotel_type=hotel_data["hotel_type"],
+                geom=from_shape(Point(hotel_data["longitude"], hotel_data["latitude"]), srid=4326),
+            )
+            hotels.append(hotel)
+
+        session.add_all(hotels)
         await session.commit()
 
     print(f"Seeded {len(HOTELS)} hotels with embeddings.")
